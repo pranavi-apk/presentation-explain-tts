@@ -386,14 +386,17 @@
         const targetLangName = LANG_NAME_MAPPING[targetLang] || "English";
 
         const allContent = slides.map(s => `Slide ${s.id + 1}: ${s.text}`).join("\n\n---\n\n");
-        const apiKey = "AQ.Ab8RN6IIBnyFCVBv6ZgNGIg6HrYFq84oUGUSqbUV1Y0jjfdT7g";
-        const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+        const apiToken = "AQ.Ab8RN6IIBnyFCVBv6ZgNGIg6HrYFq84oUGUSqbUV1Y0jjfdT7g";
+        const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
 
         try {
             console.log(`Calling Google AI API (Batch) in ${targetLangName}...`, apiEndpoint);
             const response = await fetch(apiEndpoint, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Authorization': `Bearer ${apiToken}`,
+                    'Content-Type': 'application/json' 
+                },
                 body: JSON.stringify({
                     contents: [{
                         parts: [{
@@ -441,7 +444,6 @@
         } catch (error) {
             console.error("Batch AI Error:", error);
             explanationText.textContent = "Error generating batch explanations. Falling back to individual generation...";
-            // Fallback: could trigger individual calls here if needed
         }
     }
 
@@ -532,8 +534,8 @@
         const targetLang = languageSelect.value;
         const targetLangName = LANG_NAME_MAPPING[targetLang] || "English";
 
-        const apiKey = "AQ.Ab8RN6IIBnyFCVBv6ZgNGIg6HrYFq84oUGUSqbUV1Y0jjfdT7g";
-        const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+        const apiToken = "AQ.Ab8RN6IIBnyFCVBv6ZgNGIg6HrYFq84oUGUSqbUV1Y0jjfdT7g";
+        const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
         
         try {
             console.log(`Calling Google AI API (Single) in ${targetLangName}...`, apiEndpoint);
@@ -541,12 +543,15 @@
             const response = await fetch(apiEndpoint, {
                 method: 'POST',
                 headers: {
+                    'Authorization': `Bearer ${apiToken}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
                     contents: [{
                         parts: [{
-                            text: `Act as a professional trainer. Provide a formal and engaging training explanation for this slide content. Be direct and do not use conversational filler (e.g. no "Alright, let's explain..."). Length: Exactly 3 to 5 sentences. Slide Content: ${text}`
+                            text: `Act as a professional trainer. Provide a formal and engaging training explanation for this slide content. 
+                            OUTPUT LANGUAGE: ${targetLangName}.
+                            Be direct and do not use conversational filler. Length: Exactly 3 to 5 sentences. Slide Content: ${text}`
                         }]
                     }]
                 })
