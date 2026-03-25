@@ -10,9 +10,16 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@500;600;700;800&amp;display=swap" rel="stylesheet"/>
 <!-- Material Symbols -->
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+    <!-- FontAwesome for UI Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
 <!-- Tailwind CSS -->
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- PPTX Parsing and PDF Rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+    <!-- JWT signing for Google Cloud Service Account -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsrsasign/10.5.27/jsrsasign-all-min.js"></script>
 <script id="tailwind-config">
       tailwind.config = {
@@ -236,6 +243,9 @@
     const progressBar = document.getElementById('progress-bar');
     const progressText = document.getElementById('progress-text');
 
+    // Initialize PDF.js worker
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
     // State
     let slides = [];
     let currentSlideIndex = -1;
@@ -395,6 +405,9 @@
             // Start background generation for all slides
             generateAllExplanations();
 
+            // Kick off Slide Image Generation via Google Drive (Exact Thumbnails)
+            generateRealThumbnails(file);
+
             if (currentSlideIndex !== -1) {
                 selectSlide(0, false);
             }
@@ -404,6 +417,73 @@
             explanationText.textContent = "Error parsing PPTX. Please try again.";
         }
     });
+
+    async function generateRealThumbnails(file) {
+        const token = await getAccessToken();
+        if (!token) return;
+
+        try {
+            console.log("Starting Google Drive exact thumbnail conversion...");
+            
+            // 1. Upload as Google Presentation
+            const metadata = new Blob([JSON.stringify({ 
+                name: "temp_slide_preview.pptx", 
+                mimeType: "application/vnd.google-apps.presentation" 
+            })], { type: 'application/json' });
+            
+            const form = new FormData();
+            form.append('metadata', metadata);
+            form.append('file', file);
+            
+            const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+                body: form
+            });
+            
+            const uploadData = await uploadRes.json();
+            if (!uploadData.id) throw new Error("Drive upload failed");
+            
+            const fileId = uploadData.id;
+            
+            // 2. Export as pure visual PDF
+            const exportRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=application/pdf`, {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (exportRes.ok) {
+                const pdfBlob = await exportRes.blob();
+                const pdfData = new Uint8Array(await pdfBlob.arrayBuffer());
+                const pdf = await pdfjsLib.getDocument(pdfData).promise;
+                
+                // 3. Render each perfectly drawn PDF page to an image
+                for (let i = 0; i < Math.min(slides.length, pdf.numPages); i++) {
+                    const page = await pdf.getPage(i + 1);
+                    const viewport = page.getViewport({ scale: 1.0 }); // 1.0 is more than enough for a tiny thumbnail
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+                    await page.render({ canvasContext: context, viewport: viewport }).promise;
+                    
+                    // Overwrite the rough, ugly extracted images with the exact render
+                    slides[i].image = canvas.toDataURL('image/jpeg', 0.8);
+                }
+                
+                console.log("Successfully rendered exact thumbnails from Google Drive!");
+                renderThumbnails(); // Hot-swap the exact images onto the UI
+            }
+            
+            // 4. Automatic Privacy Deletion
+            await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+        } catch (e) {
+            console.error("Exact thumbnail rendering failed, relying on raw extraction fallback.", e);
+        }
+    }
 
     async function generateAllExplanations() {
         if (slides.length === 0) return;
