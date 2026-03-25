@@ -407,6 +407,7 @@
                 },
                 body: JSON.stringify({
                     contents: [{
+                        role: "user",
                         parts: [{
                             text: `Act as a professional trainer. Below is the content of multiple presentation slides. Provide a formal, engaging training explanation for EACH slide. 
                             OUTPUT LANGUAGE: ${targetLangName}.
@@ -559,6 +560,7 @@
                 },
                 body: JSON.stringify({
                     contents: [{
+                        role: "user",
                         parts: [{
                             text: `Act as a professional trainer. Provide a formal and engaging training explanation for this slide content. 
                             OUTPUT LANGUAGE: ${targetLangName}.
