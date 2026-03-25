@@ -412,7 +412,7 @@
                     contents: [{
                         role: "user",
                         parts: [{
-                            text: `Act as a professional trainer. Below is the content of multiple presentation slides. Provide a formal, engaging training explanation for EACH slide. 
+                            text: `Act as a formal coaching instructor teaching a class using these slides. You are NOT a presenter giving a speech, but an instructor teaching the concepts. Below is the content of multiple presentation slides. Provide a formal, educational coaching explanation for EACH slide. 
                             OUTPUT LANGUAGE: ${targetLangName}.
                             Format your response as a JSON array of objects, where each object has "slide_index" (starting from 0) and "explanation" (Exactly 3 to 5 sentences).
                             Do not use conversational filler.
@@ -565,7 +565,7 @@
                     contents: [{
                         role: "user",
                         parts: [{
-                            text: `Act as a professional trainer. Provide a formal and engaging training explanation for this slide content. 
+                            text: `Act as a formal coaching instructor teaching a class using these slides. You are NOT a presenter giving a speech, but an instructor teaching the concepts. Provide a formal and educational coaching explanation for this slide content. 
                             OUTPUT LANGUAGE: ${targetLangName}.
                             Be direct and do not use conversational filler. Length: Exactly 3 to 5 sentences. Slide Content: ${text}`
                         }]
