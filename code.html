@@ -352,10 +352,38 @@
                     slideText += textNodes[i].textContent + " ";
                 }
 
+                let slideImage = null;
+                const slideNum = fileName.match(/slide(\d+)\.xml/)[1];
+                const relsPath = `ppt/slides/_rels/slide${slideNum}.xml.rels`;
+                if (zip.file(relsPath)) {
+                    const relsContent = await zip.file(relsPath).async('string');
+                    const relsDoc = parser.parseFromString(relsContent, 'application/xml');
+                    const rels = relsDoc.getElementsByTagName('Relationship');
+                    for (let i = 0; i < rels.length; i++) {
+                        const type = rels[i].getAttribute('Type');
+                        if (type && type.endsWith('/image')) {
+                            let target = rels[i].getAttribute('Target');
+                            if (target.startsWith('../')) {
+                                target = target.replace('../', 'ppt/');
+                            } else {
+                                target = `ppt/slides/${target}`;
+                            }
+                            if (zip.file(target)) {
+                                const imgData = await zip.file(target).async('base64');
+                                const ext = target.split('.').pop().toLowerCase();
+                                const mime = ext === 'png' ? 'image/png' : (ext === 'jpeg' || ext === 'jpg' ? 'image/jpeg' : 'image/gif');
+                                slideImage = `data:${mime};base64,${imgData}`;
+                                break;
+                            }
+                        }
+                    }
+                }
+
                 return {
                     id: index,
                     name: `Slide ${index + 1}`,
                     text: slideText.trim() || "No text found on this slide.",
+                    image: slideImage,
                     explanation: null, // To be filled in background
                     generating: false
                 };
@@ -469,15 +497,21 @@
             const borderClass = isActive ? 'border-2 border-primary shadow-md' : 'border border-outline-variant bg-surface-container-low group-hover:border-primary/50';
             
             const statusIcon = slide.generating ? 
-                '<div class="absolute inset-0 bg-black/40 flex items-center justify-center"><div class="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div></div>' : 
-                (slide.explanation ? '<div class="absolute top-2 right-2 bg-green-500 rounded-full p-0.5 shadow-sm"><span class="material-symbols-outlined text-white text-[12px] font-bold">check</span></div>' : '');
+                '<div class="absolute inset-0 bg-black/40 flex items-center justify-center z-10"><div class="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div></div>' : 
+                (slide.explanation ? '<div class="absolute top-2 right-2 bg-green-500 rounded-full p-0.5 shadow-sm z-30"><span class="material-symbols-outlined text-white text-[12px] font-bold">check</span></div>' : '');
+
+            const imageHtml = slide.image ? 
+                `<img src="${slide.image}" class="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity z-0" />` : 
+                `<p class="text-[8px] text-on-surface-variant/40 text-center leading-tight line-clamp-3 italic z-0">${slide.text.substring(0, 80)}...</p>`;
 
             button.innerHTML = `
                 <div class="aspect-video rounded-lg overflow-hidden ${borderClass} transition-all duration-300 mb-2 relative flex flex-col items-center justify-center bg-surface-container-high shadow-sm p-4">
-                    <span class="text-on-surface-variant font-bold text-lg mb-1">${index + 1}</span>
-                    <p class="text-[8px] text-on-surface-variant/40 text-center leading-tight line-clamp-3 italic">${slide.text.substring(0, 80)}...</p>
+                    ${imageHtml}
+                    <div class="z-20 bg-surface-container-high/90 px-2 py-0.5 rounded shadow-sm flex items-center justify-center mb-1">
+                        <span class="text-on-surface-variant font-bold text-sm">${index + 1}</span>
+                    </div>
                     ${statusIcon}
-                    ${isActive ? '<div class="absolute inset-0 bg-primary/20 flex items-center justify-center"><span class="material-symbols-outlined text-white text-3xl" style="font-variation-settings: \'FILL\' 1;">play_circle</span></div>' : ''}
+                    ${isActive ? '<div class="absolute inset-0 z-30 bg-primary/20 flex items-center justify-center"><span class="material-symbols-outlined text-white text-3xl" style="font-variation-settings: \'FILL\' 1;">play_circle</span></div>' : ''}
                 </div>
                 <p class="text-[10px] font-bold ${isActive ? 'text-primary' : 'text-on-surface-variant'} text-left truncate group-hover:text-primary transition-colors uppercase tracking-widest">${slide.name}</p>
             `;
