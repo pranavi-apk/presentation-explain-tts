@@ -426,10 +426,21 @@
             console.log("Starting Google Drive exact thumbnail conversion...");
             
             // 1. Upload as Google Presentation
-            const metadata = new Blob([JSON.stringify({ 
+            let driveFolderId = localStorage.getItem('google_drive_folder_id');
+            if (!driveFolderId) {
+                driveFolderId = prompt("Service Account has 0 quota. Please share a Google Drive folder with the Service Account email and paste the Folder ID here:");
+                if (driveFolderId) localStorage.setItem('google_drive_folder_id', driveFolderId);
+            }
+
+            const metadataJson = { 
                 name: "temp_slide_preview.pptx", 
                 mimeType: "application/vnd.google-apps.presentation" 
-            })], { type: 'application/json' });
+            };
+            if (driveFolderId) {
+                metadataJson.parents = [driveFolderId];
+            }
+
+            const metadata = new Blob([JSON.stringify(metadataJson)], { type: 'application/json' });
             
             const form = new FormData();
             form.append('metadata', metadata);
@@ -442,7 +453,10 @@
             });
             
             const uploadData = await uploadRes.json();
-            if (!uploadData.id) throw new Error("Drive upload failed");
+            if (!uploadData.id) {
+                console.error("DRIVE UPLOAD ERROR TRACE:", uploadData);
+                throw new Error("Drive upload failed: " + JSON.stringify(uploadData));
+            }
             
             const fileId = uploadData.id;
             
