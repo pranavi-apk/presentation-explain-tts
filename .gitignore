@@ -1,0 +1,7 @@
+node_modules/
+.DS_Store
+*.json
+!package.json
+!package-lock.json
+# Protect the service account key
+pptx-explainer-*.json
