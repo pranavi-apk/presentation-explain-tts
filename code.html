@@ -659,6 +659,7 @@
             const languageSelect = document.getElementById('language-select');
             const targetLang = languageSelect.value;
             const targetVoice = VOICE_MAPPING[targetLang] || 'en-US-Studio-O';
+            const voiceLangCode = targetVoice.split('-').slice(0, 2).join('-');
 
             const response = await fetch(apiEndpoint, {
                 method: 'POST',
@@ -668,7 +669,7 @@
                 },
                 body: JSON.stringify({
                     input: { ssml: ssmlText },
-                    voice: { languageCode: targetLang, name: targetVoice },
+                    voice: { languageCode: voiceLangCode, name: targetVoice },
                     audioConfig: { 
                         audioEncoding: 'MP3',
                         pitch: 0,
