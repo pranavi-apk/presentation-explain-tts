@@ -139,9 +139,9 @@
 <!-- Content Area -->
 <div class="p-12 md:p-16 flex-grow flex flex-col">
 <div id="explanation-container" class="space-y-10 text-on-surface font-body leading-[1.6] text-xl md:text-2xl font-medium max-w-4xl">
-    <p id="explanation-text" class="text-on-surface relative pl-8 border-l-2 border-primary transition-all duration-300">
+    <div id="explanation-text" contenteditable="true" spellcheck="false" class="text-on-surface relative pl-8 border-l-2 border-primary transition-all duration-300 focus:outline-none focus:border-l-4 min-h-[100px]" title="Click to edit explanation">
         Please upload a PPTX file to begin the walkthrough. Click on a slide below to hear the AI explanation.
-    </p>
+    </div>
 </div>
 <!-- Contextual Insights Section -->
 <div class="mt-auto pt-16">
@@ -187,6 +187,18 @@
 <button id="next-btn" class="p-2 text-on-surface-variant hover:text-primary transition-colors disabled:opacity-30">
 <span class="material-symbols-outlined text-2xl">skip_next</span>
 </button>
+<div class="ml-10 flex items-center gap-2 bg-surface-container-high rounded-full px-4 py-2 border border-outline-variant/30 shadow-sm hover:border-primary/50 transition-all">
+    <span class="material-symbols-outlined text-on-surface-variant text-lg">language</span>
+    <select id="language-select" class="bg-transparent text-on-surface text-[11px] font-bold uppercase tracking-wider focus:outline-none cursor-pointer">
+        <option value="en-US">English</option>
+        <option value="es-ES">Español</option>
+        <option value="fr-FR">Français</option>
+        <option value="zh-CN">中文 (简体)</option>
+        <option value="de-DE">Deutsch</option>
+        <option value="ja-JP">日本語</option>
+        <option value="hi-IN">हिन्दी</option>
+    </select>
+</div>
 </div>
 </div>
 </div>
@@ -230,6 +242,26 @@
     let utterance = null;
     let accessToken = null;
     let tokenExpiry = 0;
+    
+    const VOICE_MAPPING = {
+        'en-US': 'en-US-Studio-O',
+        'es-ES': 'es-ES-Neural2-A',
+        'fr-FR': 'fr-FR-Neural2-A',
+        'zh-CN': 'cmn-CN-Neural2-A',
+        'de-DE': 'de-DE-Neural2-A',
+        'ja-JP': 'ja-JP-Neural2-C',
+        'hi-IN': 'hi-IN-Neural2-A'
+    };
+
+    const LANG_NAME_MAPPING = {
+        'en-US': 'English',
+        'es-ES': 'Spanish',
+        'fr-FR': 'French',
+        'zh-CN': 'Chinese (Simplified)',
+        'de-DE': 'German',
+        'ja-JP': 'Japanese',
+        'hi-IN': 'Hindi'
+    };
     let serviceAccount = null;
 
     // Load Service Account JSON
@@ -349,12 +381,16 @@
         slides.forEach(s => s.generating = true);
         renderThumbnails();
 
+        const languageSelect = document.getElementById('language-select');
+        const targetLang = languageSelect.value;
+        const targetLangName = LANG_NAME_MAPPING[targetLang] || "English";
+
         const allContent = slides.map(s => `Slide ${s.id + 1}: ${s.text}`).join("\n\n---\n\n");
         const apiKey = "AQ.Ab8RN6IIBnyFCVBv6ZgNGIg6HrYFq84oUGUSqbUV1Y0jjfdT7g";
         const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
         try {
-            console.log("Calling Google AI API (Batch)...", apiEndpoint);
+            console.log(`Calling Google AI API (Batch) in ${targetLangName}...`, apiEndpoint);
             const response = await fetch(apiEndpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -362,6 +398,7 @@
                     contents: [{
                         parts: [{
                             text: `Act as a professional trainer. Below is the content of multiple presentation slides. Provide a formal, engaging training explanation for EACH slide. 
+                            OUTPUT LANGUAGE: ${targetLangName}.
                             Format your response as a JSON array of objects, where each object has "slide_index" (starting from 0) and "explanation" (Exactly 3 to 5 sentences).
                             Do not use conversational filler.
 
@@ -396,8 +433,8 @@
             });
 
             // Update current slide if needed
-            if (currentSlideIndex !== -1 && !explanationText.textContent.includes("...")) {
-                 explanationText.textContent = slides[currentSlideIndex].explanation || "No explanation generated.";
+            if (currentSlideIndex !== -1) {
+                 explanationText.innerText = slides[currentSlideIndex].explanation || "No explanation generated.";
             }
 
             renderThumbnails();
@@ -422,8 +459,9 @@
                 (slide.explanation ? '<div class="absolute top-2 right-2 bg-green-500 rounded-full p-0.5 shadow-sm"><span class="material-symbols-outlined text-white text-[12px] font-bold">check</span></div>' : '');
 
             button.innerHTML = `
-                <div class="aspect-video rounded-lg overflow-hidden ${borderClass} transition-all duration-300 mb-2 relative flex items-center justify-center bg-surface-container-high shadow-sm">
-                    <span class="text-on-surface-variant font-bold text-2xl">${index + 1}</span>
+                <div class="aspect-video rounded-lg overflow-hidden ${borderClass} transition-all duration-300 mb-2 relative flex flex-col items-center justify-center bg-surface-container-high shadow-sm p-4">
+                    <span class="text-on-surface-variant font-bold text-lg mb-1">${index + 1}</span>
+                    <p class="text-[8px] text-on-surface-variant/40 text-center leading-tight line-clamp-3 italic">${slide.text.substring(0, 80)}...</p>
                     ${statusIcon}
                     ${isActive ? '<div class="absolute inset-0 bg-primary/20 flex items-center justify-center"><span class="material-symbols-outlined text-white text-3xl" style="font-variation-settings: \'FILL\' 1;">play_circle</span></div>' : ''}
                 </div>
@@ -456,17 +494,17 @@
         stopSpeech();
 
         if (slide.explanation) {
-            explanationText.textContent = slide.explanation;
+            explanationText.innerText = slide.explanation;
             if (autoPlay && isPlaying) {
                 playSpeech();
             }
         } else if (slide.generating) {
-            explanationText.textContent = "AI is currently analyzing the Slides... Please wait a moment.";
+            explanationText.innerText = "AI is currently analyzing the Slides... Please wait a moment.";
         } else {
-            explanationText.textContent = "Generating explanation...";
+            explanationText.innerText = "Generating explanation...";
             const explanation = await getAIExplanation(slide.text);
             slide.explanation = explanation;
-            explanationText.textContent = explanation;
+            explanationText.innerText = explanation;
             renderThumbnails();
             
             if (autoPlay && isPlaying) {
@@ -475,12 +513,31 @@
         }
     }
 
+    // Save edited explanation back to slide object
+    explanationText.addEventListener('input', () => {
+        if (currentSlideIndex !== -1) {
+            slides[currentSlideIndex].explanation = explanationText.innerText;
+        }
+    });
+
+    // Re-generate if language changes
+    document.getElementById('language-select').addEventListener('change', () => {
+        if (slides.length > 0) {
+            generateAllExplanations();
+        }
+    });
+
     async function getAIExplanation(text) {
-        const apiKey = "AQ.Ab8RN6IIBnyFCVBv6ZgNGIg6HrYFq84oUGUSqbUV1Y0jjfdT7g";
-        const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        const languageSelect = document.getElementById('language-select');
+        const targetLang = languageSelect.value;
+        const targetLangName = LANG_NAME_MAPPING[targetLang] || "English";
+
+        const apiKey = "AQ.Ab8RN6IIBnyFCVBv6ZgNGIg6I... (Truncated for readability, assume same key)";
+        const apiKeyFull = "AQ.Ab8RN6IIBnyFCVBv6ZgNGIg6HrYFq84oUGUSqbUV1Y0jjfdT7g";
+        const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKeyFull}`;
         
         try {
-            console.log("Calling Google AI API (Single)...", apiEndpoint);
+            console.log(`Calling Google AI API (Single) in ${targetLangName}...`, apiEndpoint);
 
             const response = await fetch(apiEndpoint, {
                 method: 'POST',
@@ -563,8 +620,8 @@
 
     // TTS Logic
     async function playSpeech() {
-        const text = explanationText.textContent;
-        if (!text || text.startsWith("Please upload") || text.startsWith("Generating")) return;
+        const text = explanationText.innerText;
+        if (!text || text.startsWith("Please upload") || text.startsWith("Generating") || text.startsWith("AI is currently")) return;
 
         // Ensure any previous audio is stopped before starting a new one
         stopSpeech();
@@ -582,6 +639,10 @@
             const apiEndpoint = `https://texttospeech.googleapis.com/v1/text:synthesize`;
             const ssmlText = `<speak>${text.replace(/[&"<>']/g, (c) => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;', "'": '&apos;' }[c]))}</speak>`;
 
+            const languageSelect = document.getElementById('language-select');
+            const targetLang = languageSelect.value;
+            const targetVoice = VOICE_MAPPING[targetLang] || 'en-US-Studio-O';
+
             const response = await fetch(apiEndpoint, {
                 method: 'POST',
                 headers: {
@@ -590,7 +651,7 @@
                 },
                 body: JSON.stringify({
                     input: { ssml: ssmlText },
-                    voice: { languageCode: 'en-US', name: 'en-US-Studio-O' },
+                    voice: { languageCode: targetLang, name: targetVoice },
                     audioConfig: { 
                         audioEncoding: 'MP3',
                         pitch: 0,
