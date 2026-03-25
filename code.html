@@ -454,8 +454,7 @@
             
             const uploadData = await uploadRes.json();
             if (!uploadData.id) {
-                console.error("DRIVE UPLOAD ERROR TRACE:", uploadData);
-                throw new Error("Drive upload failed: " + JSON.stringify(uploadData));
+                throw new Error("Drive upload failed");
             }
             
             const fileId = uploadData.id;
