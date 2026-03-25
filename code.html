@@ -386,7 +386,14 @@
         const targetLangName = LANG_NAME_MAPPING[targetLang] || "English";
 
         const allContent = slides.map(s => `Slide ${s.id + 1}: ${s.text}`).join("\n\n---\n\n");
-        const apiToken = "AQ.Ab8RN6IIBnyFCVBv6ZgNGIg6HrYFq84oUGUSqbUV1Y0jjfdT7g";
+        
+        const apiToken = await getAccessToken();
+        if (!apiToken) {
+            console.error("No access token available for AI.");
+            explanationText.textContent = "Error: Could not authenticate with Google Cloud. Please check your Service Account JSON.";
+            return;
+        }
+
         const projectNumber = "778022084899";
         const apiEndpoint = `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectNumber}/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent`;
 
@@ -535,7 +542,9 @@
         const targetLang = languageSelect.value;
         const targetLangName = LANG_NAME_MAPPING[targetLang] || "English";
 
-        const apiToken = "AQ.Ab8RN6IIBnyFCVBv6ZgNGIg6HrYFq84oUGUSqbUV1Y0jjfdT7g";
+        const apiToken = await getAccessToken();
+        if (!apiToken) return "Error: Could not authenticate with Google Cloud.";
+
         const projectNumber = "778022084899";
         const apiEndpoint = `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectNumber}/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent`;
         
