@@ -532,9 +532,8 @@
         const targetLang = languageSelect.value;
         const targetLangName = LANG_NAME_MAPPING[targetLang] || "English";
 
-        const apiKey = "AQ.Ab8RN6IIBnyFCVBv6ZgNGIg6I... (Truncated for readability, assume same key)";
-        const apiKeyFull = "AQ.Ab8RN6IIBnyFCVBv6ZgNGIg6HrYFq84oUGUSqbUV1Y0jjfdT7g";
-        const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKeyFull}`;
+        const apiKey = "AQ.Ab8RN6IIBnyFCVBv6ZgNGIg6HrYFq84oUGUSqbUV1Y0jjfdT7g";
+        const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
         
         try {
             console.log(`Calling Google AI API (Single) in ${targetLangName}...`, apiEndpoint);
