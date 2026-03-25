@@ -304,7 +304,7 @@
             const now = Math.floor(Date.now() / 1000);
             const claim = {
                 iss: serviceAccount.client_email,
-                scope: 'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/generative-language',
+                scope: 'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/generative-language https://www.googleapis.com/auth/drive',
                 aud: serviceAccount.token_uri,
                 exp: now + 3600,
                 iat: now
