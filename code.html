@@ -387,10 +387,11 @@
 
         const allContent = slides.map(s => `Slide ${s.id + 1}: ${s.text}`).join("\n\n---\n\n");
         const apiToken = "AQ.Ab8RN6IIBnyFCVBv6ZgNGIg6HrYFq84oUGUSqbUV1Y0jjfdT7g";
-        const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
+        const projectNumber = "778022084899";
+        const apiEndpoint = `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectNumber}/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent`;
 
         try {
-            console.log(`Calling Google AI API (Batch) in ${targetLangName}...`, apiEndpoint);
+            console.log(`Calling Vertex AI (Batch) in ${targetLangName}...`, apiEndpoint);
             const response = await fetch(apiEndpoint, {
                 method: 'POST',
                 headers: { 
@@ -535,10 +536,11 @@
         const targetLangName = LANG_NAME_MAPPING[targetLang] || "English";
 
         const apiToken = "AQ.Ab8RN6IIBnyFCVBv6ZgNGIg6HrYFq84oUGUSqbUV1Y0jjfdT7g";
-        const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
+        const projectNumber = "778022084899";
+        const apiEndpoint = `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectNumber}/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent`;
         
         try {
-            console.log(`Calling Google AI API (Single) in ${targetLangName}...`, apiEndpoint);
+            console.log(`Calling Vertex AI (Single) in ${targetLangName}...`, apiEndpoint);
 
             const response = await fetch(apiEndpoint, {
                 method: 'POST',
