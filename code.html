@@ -304,7 +304,7 @@
             const now = Math.floor(Date.now() / 1000);
             const claim = {
                 iss: serviceAccount.client_email,
-                scope: 'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/generative-language https://www.googleapis.com/auth/drive',
+                scope: 'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/generative-language',
                 aud: serviceAccount.token_uri,
                 exp: now + 3600,
                 iat: now
@@ -405,7 +405,7 @@
             // Start background generation for all slides
             generateAllExplanations();
 
-            // Kick off Slide Image Generation via Google Drive (Exact Thumbnails)
+            // Kick off high-quality Slide Image Generation
             generateRealThumbnails(file);
 
             if (currentSlideIndex !== -1) {
@@ -419,83 +419,69 @@
     });
 
     async function generateRealThumbnails(file) {
-        const token = await getAccessToken();
-        if (!token) return;
-
+        console.log("Attempting to generate high-quality slide thumbnails...");
+        
+        // Try using local conversion server first
         try {
-            console.log("Starting Google Drive exact thumbnail conversion...");
-            
-            // 1. Upload as Google Presentation
-            let driveFolderId = localStorage.getItem('google_drive_folder_id');
-            if (!driveFolderId) {
-                driveFolderId = prompt("Service Account has 0 quota. Please share a Google Drive folder with the Service Account email and paste the Folder ID here:");
-                if (driveFolderId) localStorage.setItem('google_drive_folder_id', driveFolderId);
-            }
-
-            const metadataJson = { 
-                name: "temp_slide_preview.pptx", 
-                mimeType: "application/vnd.google-apps.presentation" 
-            };
-            if (driveFolderId) {
-                metadataJson.parents = [driveFolderId];
-            }
-
-            const metadata = new Blob([JSON.stringify(metadataJson)], { type: 'application/json' });
-            
-            const form = new FormData();
-            form.append('metadata', metadata);
-            form.append('file', file);
-            
-            const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` },
-                body: form
-            });
-            
-            const uploadData = await uploadRes.json();
-            if (!uploadData.id) {
-                throw new Error("Drive upload failed");
-            }
-            
-            const fileId = uploadData.id;
-            
-            // 2. Export as pure visual PDF
-            const exportRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=application/pdf`, {
-                method: 'GET',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            
-            if (exportRes.ok) {
-                const pdfBlob = await exportRes.blob();
-                const pdfData = new Uint8Array(await pdfBlob.arrayBuffer());
-                const pdf = await pdfjsLib.getDocument(pdfData).promise;
-                
-                // 3. Render each perfectly drawn PDF page to an image
-                for (let i = 0; i < Math.min(slides.length, pdf.numPages); i++) {
-                    const page = await pdf.getPage(i + 1);
-                    const viewport = page.getViewport({ scale: 1.0 }); // 1.0 is more than enough for a tiny thumbnail
-                    const canvas = document.createElement('canvas');
-                    const context = canvas.getContext('2d');
-                    canvas.height = viewport.height;
-                    canvas.width = viewport.width;
-                    await page.render({ canvasContext: context, viewport: viewport }).promise;
-                    
-                    // Overwrite the rough, ugly extracted images with the exact render
-                    slides[i].image = canvas.toDataURL('image/jpeg', 0.8);
-                }
-                
-                console.log("Successfully rendered exact thumbnails from Google Drive!");
-                renderThumbnails(); // Hot-swap the exact images onto the UI
-            }
-            
-            // 4. Automatic Privacy Deletion
-            await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
+            const success = await convertWithLocalServer(file);
+            if (success) return;
         } catch (e) {
-            console.error("Exact thumbnail rendering failed, relying on raw extraction fallback.", e);
+            console.log("Local server not available, falling back to PPTX extraction...");
         }
+        
+        // Fallback: Use extracted images from PPTX
+        useExtractedImages();
+    }
+    
+    async function convertWithLocalServer(file) {
+        // Convert file to base64
+        const reader = new FileReader();
+        const fileBase64 = await new Promise((resolve) => {
+            reader.onload = () => {
+                const base64 = reader.result.split(',')[1]; // Remove data:application/... prefix
+                resolve(base64);
+            };
+            reader.readAsDataURL(file);
+        });
+        
+        console.log("Sending to local conversion server...");
+        const response = await fetch('http://localhost:5001/convert/base64', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pptx_base64: fileBase64 })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Server responded with ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success && data.slides) {
+            console.log(`✅ Successfully converted ${data.count} slides to images`);
+            
+            // Update slides with high-quality images
+            for (let i = 0; i < Math.min(slides.length, data.slides.length); i++) {
+                slides[i].image = data.slides[i];
+                slides[i].hasFullPreview = true;
+            }
+            
+            renderThumbnails();
+            return true;
+        }
+        
+        throw new Error(data.error || 'Conversion failed');
+    }
+    
+    function useExtractedImages() {
+        if (slides.some(s => s.image)) {
+            console.log("💡 Using extracted PPTX images as thumbnails.");
+            console.log("   For better quality, start the conversion server:");
+            console.log("   python3 slide_converter_server.py");
+        } else {
+            console.log("⚠️ No images found in PPTX. Thumbnails will show text preview only.");
+        }
+        renderThumbnails();
     }
 
     async function generateAllExplanations() {
@@ -594,8 +580,10 @@
                 (slide.explanation ? '<div class="absolute top-2 right-2 bg-green-500 rounded-full p-0.5 shadow-sm z-30"><span class="material-symbols-outlined text-white text-[12px] font-bold">check</span></div>' : '');
 
             const imageHtml = slide.image ? 
-                `<img src="${slide.image}" class="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity z-0" />` : 
-                `<p class="text-[8px] text-on-surface-variant/40 text-center leading-tight line-clamp-3 italic z-0">${slide.text.substring(0, 80)}...</p>`;
+                `<img src="${slide.image}" class="absolute inset-0 w-full h-full ${slide.hasFullPreview ? 'object-contain' : 'object-cover'} opacity-70 group-hover:opacity-100 transition-opacity z-0" />` : 
+                `<div class="absolute inset-0 flex items-center justify-center p-3 z-0">
+                    <p class="text-[7px] text-on-surface-variant/50 text-center leading-tight italic line-clamp-5">${slide.text.substring(0, 120)}${slide.text.length > 120 ? '...' : ''}</p>
+                </div>`;
 
             button.innerHTML = `
                 <div class="aspect-video rounded-lg overflow-hidden ${borderClass} transition-all duration-300 mb-2 relative flex flex-col items-center justify-center bg-surface-container-high shadow-sm p-4">
