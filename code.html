@@ -19,8 +19,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 
-    <!-- JWT signing for Google Cloud Service Account -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsrsasign/10.5.27/jsrsasign-all-min.js"></script>
 <script id="tailwind-config">
       tailwind.config = {
         darkMode: "class",
@@ -124,6 +122,9 @@
     Upload PPTX
 </button>
 <input type="file" id="pptx-input" accept=".pptx" class="hidden" />
+<button id="settings-btn" class="p-2 text-on-surface-variant hover:bg-surface-container-high transition-colors rounded-full" title="API Credentials Settings">
+<span class="material-symbols-outlined text-2xl">settings</span>
+</button>
 <button class="p-2 text-on-surface-variant hover:bg-surface-container-high transition-colors rounded-full">
 <span class="material-symbols-outlined text-2xl">account_circle</span>
 </button>
@@ -251,20 +252,6 @@
     let currentSlideIndex = -1;
     let isPlaying = false;
     let utterance = null;
-    let accessToken = null;
-    let tokenExpiry = 0;
-    
-    const VOICE_MAPPING = {
-        'en-US': 'en-US-Studio-O',
-        'es-ES': 'es-ES-Neural2-A',
-        'fr-FR': 'fr-FR-Neural2-A',
-        'zh-CN': 'cmn-CN-Neural2-A',
-        'yue-HK': 'yue-HK-Standard-A',
-        'de-DE': 'de-DE-Neural2-A',
-        'ja-JP': 'ja-JP-Neural2-C',
-        'hi-IN': 'hi-IN-Neural2-A'
-    };
-
     const LANG_NAME_MAPPING = {
         'en-US': 'English',
         'es-ES': 'Spanish',
@@ -275,63 +262,8 @@
         'ja-JP': 'Japanese',
         'hi-IN': 'Hindi'
     };
-    let serviceAccount = null;
-
-    // Load Service Account JSON
-    async function loadServiceAccount() {
-        try {
-            const response = await fetch('pptx-explainer-171bd8face04.json');
-            serviceAccount = await response.json();
-            console.log("Service account loaded:", serviceAccount.project_id);
-        } catch (e) {
-            console.warn("Could not load service account JSON file automatically. You can paste it in the prompt if needed.");
-        }
-    }
-
-    async function getAccessToken() {
-        if (accessToken && Date.now() < tokenExpiry - 60000) {
-            return accessToken;
-        }
-
-        if (!serviceAccount) {
-            const pasted = prompt("Please paste your Service Account JSON content here (needed for AI):");
-            if (pasted) serviceAccount = JSON.parse(pasted);
-            else return null;
-        }
-
-        try {
-            const header = { alg: 'RS256', typ: 'JWT' };
-            const now = Math.floor(Date.now() / 1000);
-            const claim = {
-                iss: serviceAccount.client_email,
-                scope: 'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/generative-language',
-                aud: serviceAccount.token_uri,
-                exp: now + 3600,
-                iat: now
-            };
-
-            const sHeader = JSON.stringify(header);
-            const sPayload = JSON.stringify(claim);
-            const sJWT = KJUR.jws.JWS.sign(null, sHeader, sPayload, serviceAccount.private_key);
-
-            const response = await fetch(serviceAccount.token_uri, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${sJWT}`
-            });
-
-            const data = await response.json();
-            accessToken = data.access_token;
-            tokenExpiry = Date.now() + (data.expires_in * 1000);
-            return accessToken;
-        } catch (e) {
-            console.error("Auth error:", e);
-            return null;
-        }
-    }
 
     // Initialization
-    loadServiceAccount();
     updatePlaybackControls();
 
     uploadBtn.addEventListener('click', () => pptxInput.click());
@@ -487,8 +419,14 @@
     async function generateAllExplanations() {
         if (slides.length === 0) return;
         
-        // Show generating status on all slides
-        slides.forEach(s => s.generating = true);
+        // Show generating status and clear old explanations on all slides
+        slides.forEach(s => {
+            s.explanation = null;
+            s.generating = true;
+        });
+        if (currentSlideIndex !== -1) {
+            explanationText.textContent = "AI is currently generating explanations... Please wait.";
+        }
         renderThumbnails();
 
         const languageSelect = document.getElementById('language-select');
@@ -497,55 +435,66 @@
 
         const allContent = slides.map(s => `Slide ${s.id + 1}: ${s.text}`).join("\n\n---\n\n");
         
-        const apiToken = await getAccessToken();
-        if (!apiToken) {
-            console.error("No access token available for AI.");
-            explanationText.textContent = "Error: Could not authenticate with Google Cloud. Please check your Service Account JSON.";
-            return;
-        }
-
-        const projectNumber = "778022084899";
-        const apiEndpoint = `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectNumber}/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent`;
+        const fallbackToIndividual = () => {
+            slides.forEach(async (slide) => {
+                if (slide.generating) {
+                    try {
+                        const explanation = await getAIExplanation(slide.text);
+                        slide.explanation = explanation;
+                        slide.generating = false;
+                        if (currentSlideIndex === slide.id) {
+                            explanationText.innerText = explanation;
+                        }
+                        renderThumbnails();
+                    } catch (e) {
+                        slide.generating = false;
+                        slide.explanation = "Error generating explanation.";
+                        renderThumbnails();
+                    }
+                }
+            });
+        };
 
         try {
-            console.log(`Calling Vertex AI (Batch) in ${targetLangName}...`, apiEndpoint);
-            const response = await fetch(apiEndpoint, {
+            console.log(`Calling Azure OpenAI (Batch) in ${targetLangName}...`);
+            const cleanEndpoint = azureEndpoint.replace(/\/$/, "");
+            const url = `${cleanEndpoint}/openai/deployments/${azureDeployment}/chat/completions?api-version=${azureApiVersion}`;
+            
+            const response = await fetch(url, {
                 method: 'POST',
-                headers: { 
-                    'Authorization': `Bearer ${apiToken}`,
-                    'Content-Type': 'application/json' 
+                headers: {
+                    'api-key': azureApiKey,
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    contents: [{
+                    messages: [{
                         role: "user",
-                        parts: [{
-                            text: `Act as a formal coaching instructor teaching a class using these slides. You are NOT a presenter giving a speech, but an instructor teaching the concepts. Below is the content of multiple presentation slides. Provide a formal, educational coaching explanation for EACH slide. 
-                            OUTPUT LANGUAGE: ${targetLangName}.
-                            Format your response as a JSON array of objects, where each object has "slide_index" (starting from 0) and "explanation" (Exactly 3 to 5 sentences).
-                            Do not use conversational filler.
+                        content: `Act as a formal coaching instructor teaching a class using these slides. You are NOT a presenter giving a speech, but an instructor teaching the concepts. Below is the content of multiple presentation slides. Provide a formal, educational coaching explanation for EACH slide. 
+                        OUTPUT LANGUAGE: ${targetLangName}.
+                        Format your response as a JSON array of objects, where each object has "slide_index" (starting from 0) and "explanation" (Exactly 3 to 5 sentences).
+                        Do not use conversational filler.
+                        Return ONLY the raw JSON array (no markdown code blocks, no backticks).
 
-                            Slides Content:
-                            ${allContent}`
-                        }]
+                        Slides Content:
+                        ${allContent}`
                     }],
-                    generationConfig: {
-                        response_mime_type: "application/json"
-                    }
+                    temperature: 0.7
                 })
             });
 
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error("Batch AI API Error:", errorText);
-                throw new Error(`Batch API failed with status ${response.status}`);
+                console.error("Azure Batch API Error:", errorText);
+                throw new Error(`Azure Batch API failed with status ${response.status}`);
             }
 
             const data = await response.json();
-            if (!data.candidates || !data.candidates[0].content.parts[0].text) {
-                throw new Error("Invalid API response format");
+            let text = data.choices[0].message.content.trim();
+            // Strip markdown formatting if any
+            if (text.startsWith('```')) {
+                text = text.replace(/^```json\s*/, '').replace(/```$/, '').trim();
             }
-
-            const results = JSON.parse(data.candidates[0].content.parts[0].text);
+            const results = JSON.parse(text);
 
             results.forEach(res => {
                 if (slides[res.slide_index]) {
@@ -554,15 +503,14 @@
                 }
             });
 
-            // Update current slide if needed
             if (currentSlideIndex !== -1) {
-                 explanationText.innerText = slides[currentSlideIndex].explanation || "No explanation generated.";
+                explanationText.innerText = slides[currentSlideIndex].explanation || "No explanation generated.";
             }
-
             renderThumbnails();
         } catch (error) {
-            console.error("Batch AI Error:", error);
+            console.error("Azure Batch AI Error:", error);
             explanationText.textContent = "Error generating batch explanations. Falling back to individual generation...";
+            fallbackToIndividual();
         }
     }
 
@@ -661,50 +609,39 @@
         const targetLang = languageSelect.value;
         const targetLangName = LANG_NAME_MAPPING[targetLang] || "English";
 
-        const apiToken = await getAccessToken();
-        if (!apiToken) return "Error: Could not authenticate with Google Cloud.";
-
-        const projectNumber = "778022084899";
-        const apiEndpoint = `https://us-central1-aiplatform.googleapis.com/v1/projects/${projectNumber}/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent`;
-        
         try {
-            console.log(`Calling Vertex AI (Single) in ${targetLangName}...`, apiEndpoint);
-
-            const response = await fetch(apiEndpoint, {
+            console.log(`Calling Azure OpenAI (Single) in ${targetLangName}...`);
+            const cleanEndpoint = azureEndpoint.replace(/\/$/, "");
+            const url = `${cleanEndpoint}/openai/deployments/${azureDeployment}/chat/completions?api-version=${azureApiVersion}`;
+            
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${apiToken}`,
+                    'api-key': azureApiKey,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    contents: [{
+                    messages: [{
                         role: "user",
-                        parts: [{
-                            text: `Act as a formal coaching instructor teaching a class using these slides. You are NOT a presenter giving a speech, but an instructor teaching the concepts. Provide a formal and educational coaching explanation for this slide content. 
-                            OUTPUT LANGUAGE: ${targetLangName}.
-                            Be direct and do not use conversational filler. Length: Exactly 3 to 5 sentences. Slide Content: ${text}`
-                        }]
-                    }]
+                        content: `Act as a formal coaching instructor teaching a class using these slides. You are NOT a presenter giving a speech, but an instructor teaching the concepts. Provide a formal and educational coaching explanation for this slide content. 
+                        OUTPUT LANGUAGE: ${targetLangName}.
+                        Be direct and do not use conversational filler. Length: Exactly 3 to 5 sentences. Slide Content: ${text}`
+                    }],
+                    temperature: 0.7
                 })
             });
 
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error("API Error Response:", errorText);
-                let errorData = {};
-                try { errorData = JSON.parse(errorText); } catch(e) {}
-                return `AI Explanation failed (Status ${response.status}): ${errorData.error ? errorData.error.message : errorText.substring(0, 100)}`;
+                console.error("Azure Single API Error:", errorText);
+                return `Azure AI Explanation failed (Status ${response.status}): ${errorText.substring(0, 100)}`;
             }
 
             const data = await response.json();
-            if (data.candidates && data.candidates[0].content.parts[0].text) {
-                return data.candidates[0].content.parts[0].text;
-            } else {
-                return "AI could not generate an explanation for this slide (Empty response).";
-            }
+            return data.choices[0].message.content.trim();
         } catch (error) {
-            console.error("Fetch Error:", error);
-            return "Error calling API. Please check the browser console for details.";
+            console.error("Azure Fetch Error:", error);
+            return "Error calling Azure API. Please check the browser console for details.";
         }
     }
 
@@ -764,59 +701,7 @@
         isPlaying = true;
         playPauseIcon.textContent = 'pause';
 
-        const token = await getAccessToken();
-        if (!token) {
-            speakWebSpeech(text);
-            return;
-        }
-
-        try {
-            const apiEndpoint = `https://texttospeech.googleapis.com/v1/text:synthesize`;
-            const ssmlText = `<speak>${text.replace(/[&"<>']/g, (c) => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;', "'": '&apos;' }[c]))}</speak>`;
-
-            const languageSelect = document.getElementById('language-select');
-            const targetLang = languageSelect.value;
-            const targetVoice = VOICE_MAPPING[targetLang] || 'en-US-Studio-O';
-            const voiceLangCode = targetVoice.split('-').slice(0, 2).join('-');
-
-            const response = await fetch(apiEndpoint, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    input: { ssml: ssmlText },
-                    voice: { languageCode: voiceLangCode, name: targetVoice },
-                    audioConfig: { 
-                        audioEncoding: 'MP3',
-                        pitch: 0,
-                        speakingRate: 1.05
-                    }
-                })
-            });
-
-            const data = await response.json();
-            if (data.audioContent) {
-                // If the user stopped playback while we were fetching, don't play
-                if (!isPlaying) return;
-
-                const audio = new Audio(`data:audio/mp3;base64,${data.audioContent}`);
-                audio.onended = () => {
-                    if (utterance === audio) {
-                        isPlaying = false;
-                        playPauseIcon.textContent = 'play_arrow';
-                    }
-                };
-                utterance = audio;
-                audio.play();
-            } else {
-                speakWebSpeech(text);
-            }
-        } catch (error) {
-            console.error("TTS Error:", error);
-            speakWebSpeech(text);
-        }
+        speakWebSpeech(text);
     }
 
     function speakWebSpeech(text) {
@@ -855,5 +740,94 @@
         }
         // Don't change isPlaying here, let the caller decide
     }
+
+    // Settings configuration state
+    let azureEndpoint = localStorage.getItem('azureEndpoint') || '';
+    let azureApiKey = localStorage.getItem('azureApiKey') || '';
+    let azureDeployment = localStorage.getItem('azureDeployment') || 'gpt-4o';
+    let azureApiVersion = localStorage.getItem('azureApiVersion') || '2024-02-15-preview';
+
+    // Settings elements
+    const settingsBtn = document.getElementById('settings-btn');
+    const settingsModal = document.getElementById('settings-modal');
+    const closeSettingsBtn = document.getElementById('close-settings-btn');
+    const saveSettingsBtn = document.getElementById('save-settings-btn');
+    const azureEndpointInput = document.getElementById('azure-endpoint-input');
+    const azureKeyInput = document.getElementById('azure-key-input');
+    const azureDeploymentInput = document.getElementById('azure-deployment-input');
+    const azureVersionInput = document.getElementById('azure-version-input');
+
+    // Populate Settings UI
+    azureEndpointInput.value = azureEndpoint;
+    azureKeyInput.value = azureApiKey;
+    azureDeploymentInput.value = azureDeployment;
+    azureVersionInput.value = azureVersionInput.value = azureApiVersion;
+
+    settingsBtn.addEventListener('click', () => {
+        settingsModal.classList.remove('hidden');
+    });
+
+    closeSettingsBtn.addEventListener('click', () => {
+        settingsModal.classList.add('hidden');
+    });
+
+    saveSettingsBtn.addEventListener('click', () => {
+        azureEndpoint = azureEndpointInput.value.trim();
+        azureApiKey = azureKeyInput.value.trim();
+        azureDeployment = azureDeploymentInput.value.trim();
+        azureApiVersion = azureVersionInput.value.trim();
+
+        localStorage.setItem('azureEndpoint', azureEndpoint);
+        localStorage.setItem('azureApiKey', azureApiKey);
+        localStorage.setItem('azureDeployment', azureDeployment);
+        localStorage.setItem('azureApiVersion', azureApiVersion);
+
+        settingsModal.classList.add('hidden');
+        
+        // Trigger explanation regeneration if slides exist
+        if (slides.length > 0) {
+            generateAllExplanations();
+        }
+    });
 </script>
+
+<!-- Settings Modal -->
+<div id="settings-modal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center hidden">
+    <div class="bg-surface border border-outline-variant rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl p-8 flex flex-col gap-6 relative">
+        <button id="close-settings-btn" class="absolute top-4 right-4 p-2 text-on-surface-variant hover:bg-surface-container-high rounded-full">
+            <span class="material-symbols-outlined text-xl">close</span>
+        </button>
+        <div>
+            <h2 class="font-headline text-xl font-bold text-on-surface">Azure OpenAI Configuration</h2>
+            <p class="text-xs text-on-surface-variant mt-1">Configure your Azure OpenAI deployment settings for slide explanations.</p>
+        </div>
+        
+        <div class="flex flex-col gap-4">
+            <div>
+                <label class="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1">Azure Endpoint</label>
+                <input type="text" id="azure-endpoint-input" placeholder="https://resource-name.cognitiveservices.azure.com/" class="w-full bg-surface-container-low text-on-surface rounded-xl p-3 border border-outline-variant focus:border-primary focus:outline-none text-sm" />
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1">API Key</label>
+                <input type="password" id="azure-key-input" placeholder="Enter Azure OpenAI API Key" class="w-full bg-surface-container-low text-on-surface rounded-xl p-3 border border-outline-variant focus:border-primary focus:outline-none text-sm" />
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1">Deployment Name</label>
+                    <input type="text" id="azure-deployment-input" placeholder="e.g. gpt-4o" class="w-full bg-surface-container-low text-on-surface rounded-xl p-3 border border-outline-variant focus:border-primary focus:outline-none text-sm" />
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1">API Version</label>
+                    <input type="text" id="azure-version-input" placeholder="e.g. 2024-02-15-preview" class="w-full bg-surface-container-low text-on-surface rounded-xl p-3 border border-outline-variant focus:border-primary focus:outline-none text-sm" />
+                </div>
+            </div>
+        </div>
+        
+        <div class="flex justify-end gap-3 mt-2">
+            <button id="save-settings-btn" class="px-5 py-2.5 bg-primary text-on-primary rounded-xl font-semibold text-sm hover:bg-primary-dim transition-all shadow-lg shadow-primary/20">
+                Save & Apply Settings
+            </button>
+        </div>
+    </div>
+</div>
 </body></html>
